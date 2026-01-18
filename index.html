@@ -1,0 +1,1383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARCHIVE_CONSOLE_V2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /* Base Configuration */
+        body {
+            margin: 0;
+            overflow: hidden; /* Main body hidden, grid handles scroll if needed */
+            background-color: #222; 
+            font-family: 'JetBrains Mono', monospace;
+            cursor: crosshair;
+            user-select: none;
+        }
+
+        /* THEME VARIABLES */
+        .theme-light {
+            --bg-color: #e5e5e5;
+            --text-main: #444444;
+            --text-accent: #000000;
+            --border-color: #bbbbbb;
+            --ui-bg: rgba(255, 255, 255, 0.7);
+            --status-green: #008800;
+            --status-alert: #cc3300;
+            --btn-hover: #ffffff;
+            --grid-line-color: #999999;
+        }
+
+        .theme-dark {
+            --bg-color: #000000;
+            --text-main: #9a9a9a;
+            --text-accent: #ffffff;
+            --border-color: #333333;
+            --ui-bg: rgba(0, 0, 0, 0.8);
+            --status-green: #7CFF7A;
+            --status-alert: #ffaa00;
+            --btn-hover: #111111;
+            --grid-line-color: #444444;
+        }
+
+        /* Canvas */
+        #gl-canvas {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 1;
+        }
+
+        /* UI Layer */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* GRID LAYOUT CONTAINER 
+           20pt ~= 27px margin top/bottom.
+        */
+        #grid-container {
+            position: absolute;
+            top: 60px;    /* Space for top controls + 5pt gap */
+            bottom: 60px; /* Space for bottom controls + 5pt gap */
+            left: 0; right: 0;
+            padding: 0 16px;
+            pointer-events: auto;
+            box-sizing: border-box;
+            display: grid;
+            gap: 16px;
+        }
+
+        #grid-container::-webkit-scrollbar { width: 4px; }
+        #grid-container::-webkit-scrollbar-track { background: transparent; }
+        #grid-container::-webkit-scrollbar-thumb { background: var(--status-green); }
+
+        .grid-item-ui {
+            position: relative;
+            border: 1px solid var(--border-color);
+            transition: border-color 0.2s, box-shadow 0.2s;
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            align-items: flex-start;
+            background: transparent; 
+            min-height: 0; /* Fix for grid overflow */
+        }
+
+        .grid-item-ui:hover {
+            border-color: var(--text-accent);
+            box-shadow: 0 0 15px rgba(128, 128, 128, 0.1);
+        }
+
+        /* --- CONTROLS --- */
+        
+        /* Grid Config Control (Upper Right) */
+        #grid-config {
+            position: absolute;
+            top: 25px;
+            right: 16px;
+            display: flex;
+            gap: 8px;
+            pointer-events: auto;
+            z-index: 50;
+        }
+        
+        /* Info Button (Upper Left) */
+        #info-btn {
+            position: absolute;
+            top: 25px;
+            left: 16px;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid #000; /* Black Frame */
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            padding: 4px 8px;
+            cursor: pointer;
+            text-transform: uppercase;
+            backdrop-filter: blur(4px);
+            z-index: 50;
+            pointer-events: auto;
+        }
+        #info-btn:hover {
+            border-color: #fff;
+            background: rgba(255,255,255,0.2);
+        }
+
+        /* Info Modal - SCALING LOGIC */
+        #info-modal {
+            display: none;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            /* Scale width but respect limits */
+            width: auto;
+            min-width: 300px;
+            max-width: 600px;
+            background: rgba(10, 10, 10, 0.95);
+            border: 1px solid #000;
+            padding: 20px;
+            z-index: 210;
+            pointer-events: auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            color: var(--text-main);
+        }
+        #info-modal.active { display: block; }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+        .close-modal { cursor: pointer; color: #888; }
+        .close-modal:hover { color: #fff; }
+
+        /* Content area scales with text */
+        #info-content {
+            display: block;
+            width: 100%;
+            /* Allow height to scale automatically */
+            height: auto; 
+            min-height: 50px;
+            max-height: 60vh; /* Prevent it from getting too tall on small screens */
+            background: transparent;
+            border: none;
+            color: #ddd;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            line-height: 1.5;
+            outline: none;
+            white-space: pre-wrap; /* Preserves newlines and wraps text */
+            overflow-y: auto;
+        }
+        #info-content.editable {
+            background: rgba(255,255,255,0.05);
+            border: 1px dashed #555;
+            color: #fff;
+            padding: 5px;
+        }
+        #save-info-btn {
+            display: none; /* Admin only */
+            margin-top: 10px;
+            background: var(--status-green);
+            color: #000;
+            border: 1px solid #000; /* Black Frame */
+            padding: 4px 12px;
+            font-size: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+            text-transform: uppercase;
+        }
+
+        .btn-ctrl {
+            background: rgba(0,0,0,0.5);
+            border: 1px solid #000; /* Black Frame */
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            padding: 4px 8px;
+            cursor: pointer;
+            text-transform: uppercase;
+            backdrop-filter: blur(4px);
+        }
+        .btn-ctrl:hover, .btn-ctrl.active {
+            border-color: #fff;
+            background: rgba(255,255,255,0.2);
+        }
+
+        /* Admin Controls */
+        .admin-only { display: none !important; }
+        body.is-admin .admin-only { display: block !important; }
+        body.preview-mode .admin-only { display: none !important; }
+        
+        /* Preview Button */
+        #preview-btn {
+            display: none;
+            position: absolute;
+            bottom: 24px; right: 24px; 
+            background: var(--ui-bg);
+            border: 1px solid #000; /* Black Frame */
+            color: var(--text-main);
+            padding: 6px 12px;
+            font-size: 10px;
+            cursor: pointer;
+            pointer-events: auto;
+            z-index: 200;
+            text-transform: uppercase;
+        }
+        body.is-admin #preview-btn { display: block; }
+        body.preview-mode #preview-btn {
+            background: var(--status-green);
+            color: #000;
+            border-color: var(--status-green);
+        }
+        #preview-btn:hover {
+            color: var(--text-accent);
+            border-color: var(--text-accent);
+        }
+
+        /* Upload Button */
+        .tile-btn {
+            position: absolute;
+            top: 8px;
+            background: var(--ui-bg);
+            border: 1px solid #000; /* Black Frame */
+            color: var(--text-main);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            padding: 4px 8px;
+            cursor: pointer;
+            opacity: 0;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            z-index: 50;
+        }
+        .grid-item-ui:hover .tile-btn { opacity: 1; }
+        .tile-btn:hover {
+            color: var(--text-accent);
+            border-color: var(--text-accent);
+            background: var(--btn-hover);
+        }
+
+        .btn-upload { right: 8px; }
+        .btn-theme { left: 8px; width: 24px; text-align: center; padding: 4px 0; }
+
+        /* Tile Info */
+        .tile-info {
+            padding: 16px;
+            font-size: 10px;
+            line-height: 1.4;
+            pointer-events: none;
+            width: 100%;
+            color: var(--text-main);
+        }
+
+        .tile-id {
+            color: var(--text-accent);
+            font-weight: 700;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .tile-status { color: var(--status-green); font-weight: 600; }
+        .tile-status.waiting { color: var(--status-alert); animation: pulse 2s infinite; }
+        .tile-status.viewing { color: var(--status-green); opacity: 0.8; }
+
+        @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+
+        /* Fullscreen UI */
+        #fullscreen-ui {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 30;
+        }
+        #fullscreen-ui.active { display: block; }
+
+        /* Login Button (Moved to Bottom Right) */
+        #login-btn {
+            position: absolute;
+            bottom: 25px; /* Below grid (60px bottom) - approx 5pt gap */
+            right: 16px;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid #000; /* Black Frame */
+            color: #fff;
+            padding: 6px 12px;
+            font-size: 10px;
+            cursor: pointer;
+            pointer-events: auto;
+            z-index: 100;
+            text-transform: uppercase;
+            backdrop-filter: blur(4px);
+        }
+        #login-btn:hover {
+            border-color: #fff;
+            background: rgba(255,255,255,0.2);
+        }
+        body.is-admin #login-btn { display: none; }
+
+        /* Footer Copyright */
+        #footer-copyright {
+            position: absolute;
+            bottom: 25px;
+            left: 16px;
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            pointer-events: none;
+            z-index: 50;
+            opacity: 0.8;
+        }
+
+        /* Login Modal */
+        #login-modal {
+            display: none;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            border: 1px solid var(--status-green);
+            padding: 20px;
+            z-index: 200;
+            pointer-events: auto;
+            text-align: center;
+        }
+        #login-modal.active { display: block; }
+        #login-modal input {
+            background: #111;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 8px;
+            margin-bottom: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            outline: none;
+        }
+        #login-modal button {
+            background: var(--status-green);
+            color: #000;
+            border: none;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        /* Fullscreen Theme Toggle */
+        #fs-theme-toggle {
+            position: absolute;
+            top: 40px; left: 180px; 
+            background: var(--ui-bg);
+            border: 1px solid #000; /* Black Frame */
+            color: var(--text-main);
+            padding: 8px;
+            cursor: pointer;
+            pointer-events: auto;
+            backdrop-filter: blur(4px);
+            z-index: 60;
+        }
+        #fs-theme-toggle:hover {
+            color: var(--text-accent);
+            border-color: var(--text-accent);
+            background: var(--btn-hover);
+        }
+
+        /* Animation Speed Control */
+        #speed-control {
+            position: absolute;
+            top: 40px; right: 220px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            pointer-events: auto;
+            background: var(--ui-bg);
+            padding: 4px 10px;
+            border: 1px solid #000; /* Black Frame */
+            backdrop-filter: blur(4px);
+            z-index: 60;
+        }
+        #speed-control span {
+            font-size: 10px;
+            text-transform: uppercase;
+            color: var(--text-main);
+        }
+        #speed-btn {
+            background: transparent;
+            border: 1px solid #000; /* Black Frame */
+            color: var(--text-main);
+            padding: 2px 6px;
+            font-size: 10px;
+            cursor: pointer;
+        }
+        #speed-btn:hover {
+            border-color: var(--text-accent);
+            color: var(--text-accent);
+        }
+
+        .mode-menu {
+            position: absolute;
+            top: 40px; left: 40px;
+            display: flex; flex-direction: column; gap: 8px;
+            pointer-events: auto;
+        }
+
+        .btn-mode {
+            background: var(--ui-bg);
+            border: 1px solid #000; /* Black Frame */
+            color: var(--text-main);
+            padding: 8px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            text-transform: uppercase;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.1s;
+            width: 120px;
+            backdrop-filter: blur(4px);
+        }
+
+        .btn-mode:hover, .btn-mode.active {
+            border-color: var(--text-accent);
+            color: var(--text-accent);
+            background: var(--btn-hover);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .btn-mode.active::before { content: '> '; }
+
+        .mode-label { color: var(--text-main); font-size: 10px; margin-bottom: 4px; text-transform: uppercase; }
+
+        .hud-stats {
+            position: absolute; bottom: 40px; left: 40px;
+            font-size: 11px; color: var(--text-main);
+            line-height: 1.6;
+            background: var(--ui-bg);
+            padding: 10px;
+            border-left: 2px solid var(--text-accent);
+            backdrop-filter: blur(4px);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-close {
+            position: absolute; top: 40px; right: 40px;
+            border: 1px solid #000; /* Black Frame */
+            color: var(--text-main);
+            background: var(--ui-bg);
+            padding: 8px 16px;
+            cursor: pointer; pointer-events: auto;
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase; font-size: 11px;
+            backdrop-filter: blur(4px);
+        }
+        .btn-close:hover {
+            border-color: var(--text-accent);
+            color: var(--text-accent);
+            background: var(--btn-hover);
+        }
+
+        /* Drag Overlay (Admin Only) */
+        #drop-overlay {
+            display: none;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 100;
+            justify-content: center; align-items: center;
+            pointer-events: none;
+            border: 4px dashed #7CFF7A;
+        }
+        #drop-overlay.active { display: flex; }
+        
+        .loading-line {
+            position: absolute; bottom: 0; left: 0;
+            height: 2px;
+            background: var(--status-green);
+            width: 0%;
+            transition: width 0.2s;
+        }
+        
+        /* Utils */
+        .text-accent { color: var(--text-accent); }
+        .text-green-status { color: var(--status-green); }
+        .blink { animation: blinker 1s linear infinite; }
+        @keyframes blinker { 50% { opacity: 0; } }
+
+    </style>
+</head>
+<body>
+
+    <!-- Info Button (Top Left) -->
+    <button id="info-btn">INFO</button>
+
+    <!-- Info Modal -->
+    <div id="info-modal">
+        <div class="modal-header">
+            <span class="text-xs font-bold text-white">SYSTEM INFORMATION</span>
+            <span class="close-modal text-xs">[X]</span>
+        </div>
+        <!-- Changed to DIV for auto-scaling height -->
+        <div id="info-content"></div>
+        <button id="save-info-btn">UPDATE ARCHIVE INFO</button>
+    </div>
+
+    <!-- Grid Configuration Controls -->
+    <div id="grid-config">
+        <!-- Renamed "1 COL" to "1" -->
+        <button class="btn-ctrl" data-grid="1col">1</button>
+        <button class="btn-ctrl" data-grid="2x2">4</button>
+        <button class="btn-ctrl" data-grid="3x2">6</button>
+        <button class="btn-ctrl" data-grid="3x3">9</button>
+    </div>
+
+    <!-- Admin Controls -->
+    <button id="login-btn">Admin Login</button>
+
+    <!-- Footer Copyright -->
+    <div id="footer-copyright">© Valya Zaytseva 2026</div>
+    
+    <!-- Preview Button -->
+    <button id="preview-btn">Preview Mode</button>
+    
+    <div id="login-modal">
+        <h3 class="text-white mb-4 font-bold">ACCESS CONTROL</h3>
+        <input type="password" id="password-input" placeholder="PASSWORD">
+        <button id="submit-login">UNLOCK</button>
+    </div>
+
+    <!-- Drag Overlay (Admin Only via JS check) -->
+    <div id="drop-overlay">
+        <div class="text-center">
+            <h1 class="text-2xl text-white font-bold tracking-widest">>> INITIATE DATA UPLOAD <<</h1>
+            <p class="text-green-400 mt-2 text-sm">DROP OBJ + MTL + TEXTURE FILES TOGETHER</p>
+        </div>
+    </div>
+
+    <!-- WebGL Canvas -->
+    <canvas id="gl-canvas"></canvas>
+
+    <!-- UI Layer -->
+    <div id="ui-layer">
+        
+        <!-- Grid Container UI -->
+        <div id="grid-container">
+            <!-- JS generates items here -->
+        </div>
+
+        <!-- Fullscreen UI (Starts with a default class, JS updates it) -->
+        <div id="fullscreen-ui" class="theme-light">
+            <button class="btn-close" id="btn-exit">Close View [ESC]</button>
+            <button id="fs-theme-toggle" title="Toggle Theme">☀</button>
+            
+            <!-- Animation Speed Control -->
+            <div id="speed-control">
+                <span>SPEED:</span>
+                <button id="speed-btn">1x</button>
+            </div>
+            
+            <div class="mode-menu">
+                <div class="mode-label">Render Mode</div>
+                <button class="btn-mode active" data-mode="texture">Texture</button>
+                <button class="btn-mode" data-mode="solid">Solid</button>
+                <button class="btn-mode" data-mode="wireframe">Wireframe</button>
+                <button class="btn-mode" data-mode="arctic">Arctic</button>
+                <button class="btn-mode" data-mode="normals">Normals</button>
+                <button class="btn-mode" data-mode="inferno">Inferno</button>
+                <button class="btn-mode" data-mode="toxic">Toxic</button>
+                <button class="btn-mode" data-mode="quicksilver">Quicksilver</button>
+                <button class="btn-mode" data-mode="ethereal">Ethereal</button>
+                <button class="btn-mode" data-mode="ethereal2">Ethereal 2</button>
+                <button class="btn-mode" data-mode="neon">Neon</button>
+                <button class="btn-mode" data-mode="chroma">Chromatic</button>
+                <button class="btn-mode" data-mode="mono">Mono Signal</button>
+            </div>
+
+            <div class="hud-stats">
+                <div id="hud-name" class="text-accent font-bold mb-2">SCAN_ERROR</div>
+                <div>VERTICES: <span id="hud-verts" class="text-accent">0</span></div>
+                <div>FACES:    <span id="hud-faces" class="text-accent">0</span></div>
+                <div>MODE:     <span id="hud-mode" class="text-green-status">TEXTURE</span></div>
+                <div class="mt-2 text-main text-xs">> waiting for input...<span class="blink">_</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
+                "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <!-- Application Logic -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+        import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+        import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
+
+        // --- CONFIG ---
+        const config = {
+            maxSlots: 9, // Max slots supported (3x3)
+            gap: 16,
+            colors: {
+                light: 0xe5e5e5,
+                dark: 0x000000
+            }
+        };
+
+        const state = {
+            view: 'grid',
+            activeSlot: 0,
+            scenes: [], 
+            renderer: null,
+            canvas: null,
+            time: 0,
+            isDragging: false,
+            gridTexLight: null,
+            gridTexDark: null,
+            isAdmin: false, 
+            isPreview: false,
+            speedMultiplier: 1.0,
+            gridMode: '3x2', // '1col', '2x2', '3x2', '3x3'
+            visibleSlots: 6,
+            infoText: "ARCHIVE CONSOLE V2\n\nWELCOME TO THE DIGITAL ARCHIVE.\nPLEASE SELECT A SLOT TO VIEW DETAILED SCAN DATA."
+        };
+
+        // --- CUSTOM SHADERS (Abbreviated for brevity, same as previous) ---
+        const SOFT_TEXTURE_SHADER = {
+            vertexShader: `varying vec3 vNormal; varying vec3 vViewPosition; varying vec2 vUv; void main() { vNormal = normalize(normalMatrix * normal); vUv = uv; vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); vViewPosition = -mvPosition.xyz; gl_Position = projectionMatrix * mvPosition; }`,
+            fragmentShader: `uniform sampler2D map; varying vec3 vNormal; varying vec3 vViewPosition; varying vec2 vUv; void main() { vec3 normal = normalize(vNormal); vec3 viewDir = normalize(vViewPosition); vec3 lightDir = normalize(vec3(1.0, 1.0, 1.0)); vec4 texColor = texture2D(map, vUv); float NdotL = dot(normal, lightDir); float diff = NdotL * 0.5 + 0.5; diff = pow(diff, 1.5); float fresnel = 1.0 - max(dot(viewDir, normal), 0.0); fresnel = pow(fresnel, 2.0); vec3 finalColor = texColor.rgb * diff; finalColor += vec3(0.1) * fresnel; gl_FragColor = vec4(finalColor, 1.0); }`
+        };
+        const ARCTIC_SHADER = { vertexShader: `varying vec3 vNormal; varying vec3 vViewPosition; void main() { vNormal = normalize(normalMatrix * normal); vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); vViewPosition = -mvPosition.xyz; gl_Position = projectionMatrix * mvPosition; }`, fragmentShader: `uniform float uTime; varying vec3 vNormal; varying vec3 vViewPosition; void main() { vec3 normal = normalize(vNormal); vec3 viewDir = normalize(vViewPosition); vec3 lightDir = normalize(vec3(-1.0, 1.0, 1.0)); float NdotL = dot(normal, lightDir); float diff = NdotL * 0.5 + 0.5; vec3 shadowColor = vec3(0.6, 0.7, 0.8); vec3 highlightColor = vec3(1.0, 1.0, 1.0); vec3 color = mix(shadowColor, highlightColor, diff); float rim = 1.0 - max(dot(viewDir, normal), 0.0); rim = pow(rim, 3.0); vec3 rimColor = vec3(0.8, 0.9, 1.0); gl_FragColor = vec4(color + rim * rimColor * 0.5, 1.0); }` };
+        const INFERNO_SHADER = { vertexShader: `varying vec3 vNormal; varying vec3 vViewPosition; void main() { vNormal = normalize(normalMatrix * normal); vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); vViewPosition = -mvPosition.xyz; gl_Position = projectionMatrix * mvPosition; }`, fragmentShader: `uniform float uTime; varying vec3 vNormal; varying vec3 vViewPosition; void main() { vec3 normal = normalize(vNormal); vec3 viewDir = normalize(vViewPosition); float dotProduct = dot(normal, viewDir); float rim = 1.0 - max(dotProduct, 0.0); rim = pow(rim, 2.0); float pulse = sin(uTime * 3.0) * 0.5 + 0.5; vec3 baseColor = vec3(0.1, 0.0, 0.0); vec3 midColor = vec3(0.8, 0.1, 0.0); vec3 hotColor = vec3(1.0, 0.8, 0.2); vec3 finalColor = mix(baseColor, midColor, rim); finalColor = mix(finalColor, hotColor, rim * pulse); gl_FragColor = vec4(finalColor, 1.0); }` };
+        const TOXIC_SHADER = { vertexShader: `varying vec3 vNormal; varying vec3 vViewPosition; void main() { vNormal = normalize(normalMatrix * normal); vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); vViewPosition = -mvPosition.xyz; gl_Position = projectionMatrix * mvPosition; }`, fragmentShader: `uniform float uTime; varying vec3 vNormal; varying vec3 vViewPosition; void main() { vec3 normal = normalize(vNormal); vec3 viewDir = normalize(vViewPosition); vec3 lightDir = normalize(vec3(1.0, 1.0, 1.0)); vec3 baseColor = vec3(0.8, 1.0, 0.0); float diff = max(dot(normal, lightDir), 0.0); vec3 diffuse = baseColor * (diff * 0.6 + 0.4); vec3 reflectDir = reflect(-lightDir, normal); float specAngle = max(dot(viewDir, reflectDir), 0.0); float spec = pow(specAngle, 32.0); vec3 specular = vec3(1.0, 1.0, 0.8) * spec; float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 3.0); vec3 rim = vec3(0.9, 1.0, 0.2) * fresnel; float pulse = 0.9 + 0.1 * sin(uTime * 3.0); vec3 finalColor = (diffuse + specular + rim) * pulse; gl_FragColor = vec4(finalColor, 1.0); }` };
+        const QUICKSILVER_SHADER = { vertexShader: `varying vec3 vNormal; varying vec3 vViewPosition; varying vec2 vUv; void main() { vNormal = normalize(normalMatrix * normal); vUv = uv; vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); vViewPosition = -mvPosition.xyz; gl_Position = projectionMatrix * mvPosition; }`, fragmentShader: `uniform float uTime; varying vec3 vNormal; varying vec3 vViewPosition; varying vec2 vUv; float hash(vec2 p) { return fract(1e4 * sin(17.0 * p.x + p.y * 0.1) * (0.1 + abs(sin(p.y * 13.0 + p.x)))); } float noise(vec2 x) { vec2 i = floor(x); vec2 f = fract(x); float a = hash(i); float b = hash(i + vec2(1.0, 0.0)); float c = hash(i + vec2(0.0, 1.0)); float d = hash(i + vec2(1.0, 1.0)); vec2 u = f * f * (3.0 - 2.0 * f); return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y; } float fbm(vec2 x) { float v = 0.0; float a = 0.5; vec2 shift = vec2(100.0); mat2 rot = mat2(cos(0.5), sin(0.5), -sin(0.5), cos(0.50)); for (int i = 0; i < 3; ++i) { v += a * noise(x); x = rot * x * 2.0 + shift; a *= 0.5; } return v; } void main() { vec3 viewDir = normalize(vViewPosition); vec3 normal = normalize(vNormal); vec2 p = vUv * 2.0; float t = uTime * 0.05; vec2 q = vec2(0.); q.x = fbm( p + 0.00*t ); q.y = fbm( p + vec2(1.0)); vec2 r = vec2(0.); r.x = fbm( p + 1.0*q + vec2(1.7,9.2)+ 0.15*t ); r.y = fbm( p + 1.0*q + vec2(8.3,2.8)+ 0.126*t); float f = fbm(p+r); vec3 silver = vec3(0.9, 0.92, 0.95); vec3 chrome = vec3(0.6, 0.65, 0.7); vec3 color = mix(chrome, silver, f); float spec = pow(max(dot(reflect(-viewDir, normal), vec3(0,1,0)), 0.0), 32.0); float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 2.0); vec3 finalColor = color + spec * vec3(1.0) + fresnel * vec3(0.8, 0.9, 1.0) * 0.5; gl_FragColor = vec4(finalColor, 1.0); }` };
+        const ETHEREAL_SHADER = { vertexShader: `varying vec3 vNormal; varying vec3 vViewPosition; varying vec3 vPos; void main() { vNormal = normalize(normalMatrix * normal); vPos = position; vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); vViewPosition = -mvPosition.xyz; gl_Position = projectionMatrix * mvPosition; }`, fragmentShader: `uniform float uTime; varying vec3 vNormal; varying vec3 vViewPosition; varying vec3 vPos; void main() { vec3 viewDir = normalize(vViewPosition); vec3 normal = normalize(vNormal); vec3 colTop = vec3(0.1, 0.8, 0.9); vec3 colBot = vec3(0.6, 0.1, 0.8); float mixVal = vPos.y * 0.5 + 0.5; vec3 base = mix(colBot, colTop, mixVal + sin(uTime * 0.5) * 0.2); float fresnel = 1.0 - max(dot(viewDir, normal), 0.0); fresnel = pow(fresnel, 2.0); vec3 glowColor = vec3(0.8, 0.9, 1.0); vec3 finalColor = base * 0.3; finalColor += glowColor * fresnel * 0.8; gl_FragColor = vec4(finalColor, 1.0); }` };
+        const ETHEREAL_2_SHADER = { vertexShader: `varying vec3 vNormal; varying vec3 vViewPosition; varying vec3 vPos; void main() { vNormal = normalize(normalMatrix * normal); vPos = position; vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); vViewPosition = -mvPosition.xyz; gl_Position = projectionMatrix * mvPosition; }`, fragmentShader: `uniform float uTime; varying vec3 vNormal; varying vec3 vViewPosition; varying vec3 vPos; void main() { vec3 viewDir = normalize(vViewPosition); vec3 normal = normalize(vNormal); vec3 colTop = vec3(0.9, 0.9, 0.95); vec3 colBot = vec3(0.2, 0.2, 0.25); float mixVal = vPos.y * 0.5 + 0.5; vec3 base = mix(colBot, colTop, mixVal + sin(uTime * 0.5) * 0.2); float fresnel = 1.0 - max(dot(viewDir, normal), 0.0); fresnel = pow(fresnel, 2.0); vec3 glowColor = vec3(1.0, 1.0, 1.0); vec3 finalColor = base * 0.3; finalColor += glowColor * fresnel * 0.8; gl_FragColor = vec4(finalColor, 1.0); }` };
+        const NEON_PULSE_SHADER = { vertexShader: `varying vec3 vNormal; varying vec3 vViewPosition; void main() { vNormal = normalize(normalMatrix * normal); vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); vViewPosition = -mvPosition.xyz; gl_Position = projectionMatrix * mvPosition; }`, fragmentShader: `uniform float uTime; varying vec3 vNormal; varying vec3 vViewPosition; void main() { vec3 normal = normalize(vNormal); vec3 viewDir = normalize(vViewPosition); float edge = 1.0 - abs(dot(viewDir, normal)); edge = pow(edge, 2.0); float pulse = sin(uTime * 4.0) * 0.5 + 0.5; vec3 colorA = vec3(0.0, 1.0, 1.0); vec3 colorB = vec3(0.0, 0.2, 1.0); vec3 glow = mix(colorA, colorB, pulse); vec3 finalColor = glow * edge * 2.0; gl_FragColor = vec4(finalColor, 1.0); }` };
+        const CHROMATIC_DISTORTION_SHADER = { vertexShader: `uniform float uTime; varying vec3 vNormal; varying vec3 vViewPosition; void main() { vNormal = normalize(normalMatrix * normal); vec3 pos = position; pos.x += sin(pos.y * 4.0 + uTime * 2.0) * 0.05; pos.z += cos(pos.y * 4.0 + uTime * 2.0) * 0.05; vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0); vViewPosition = -mvPosition.xyz; gl_Position = projectionMatrix * mvPosition; }`, fragmentShader: `uniform float uTime; varying vec3 vNormal; varying vec3 vViewPosition; void main() { vec3 normal = normalize(vNormal); vec3 viewDir = normalize(vViewPosition); float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 3.0); float r = sin(uTime * 2.0 + vViewPosition.x) * 0.5 + 0.5; float g = sin(uTime * 2.0 + vViewPosition.y + 2.0) * 0.5 + 0.5; float b = sin(uTime * 2.0 + vViewPosition.z + 4.0) * 0.5 + 0.5; vec3 color = vec3(r, g, b); gl_FragColor = vec4(color * fresnel, 1.0); }` };
+        const MONO_CHROMA_SHADER = { vertexShader: `uniform float uTime; varying vec3 vNormal; varying vec3 vViewPosition; void main() { vNormal = normalize(normalMatrix * normal); vec3 pos = position; pos.x += sin(pos.y * 4.0 + uTime * 2.0) * 0.05; pos.z += cos(pos.y * 4.0 + uTime * 2.0) * 0.05; vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0); vViewPosition = -mvPosition.xyz; gl_Position = projectionMatrix * mvPosition; }`, fragmentShader: `uniform float uTime; varying vec3 vNormal; varying vec3 vViewPosition; void main() { vec3 normal = normalize(vNormal); vec3 viewDir = normalize(vViewPosition); float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 2.0); float noise = fract(sin(dot(vViewPosition.xy, vec2(12.9898,78.233))) * 43758.5453); vec3 color = vec3(fresnel + noise * 0.1); gl_FragColor = vec4(color, 1.0); }` };
+
+        // --- INIT ---
+        function init() {
+            state.canvas = document.querySelector('#gl-canvas');
+            
+            // Check LocalStorage for Info Text
+            const savedInfo = localStorage.getItem('archive_info_text');
+            if(savedInfo) state.infoText = savedInfo;
+
+            // Setup Info Modal Content - USING INNERTEXT FOR DIV
+            document.getElementById('info-content').innerText = state.infoText;
+            
+            // Renderer
+            state.renderer = new THREE.WebGLRenderer({ canvas: state.canvas, antialias: true, alpha: false });
+            state.renderer.setPixelRatio(window.devicePixelRatio);
+            state.renderer.setSize(window.innerWidth, window.innerHeight);
+            state.renderer.setScissorTest(true);
+            state.renderer.outputEncoding = THREE.sRGBEncoding;
+
+            // Generate Grid Textures
+            state.gridTexLight = createGridTexture(false);
+            state.gridTexDark = createGridTexture(true);
+
+            // Initialize Max Slots (9)
+            const gridContainer = document.getElementById('grid-container');
+
+            for (let i = 0; i < config.maxSlots; i++) {
+                const sceneData = createScene(i);
+                state.scenes.push(sceneData);
+
+                // Create UI
+                const div = document.createElement('div');
+                div.className = 'grid-item-ui theme-light'; 
+                div.dataset.index = i;
+                
+                // Generic naming for extra slots
+                const targetName = `SLOT ${i + 1}`;
+                const locationInfo = "Berlin, 52°29′N, 13°24′E"; 
+                const weatherInfo = `
+                    <div class="col-span-1 mt-1 pt-1">
+                        <div>TEMP: <span class="text-accent">3 °C / 37 °F</span></div>
+                        <div>HUMIDITY: <span class="text-accent">97–100%</span></div>
+                        <div>PRESSURE: <span class="text-accent">1011–1015 hPa</span></div>
+                    </div>
+                `;
+                
+                div.innerHTML = `
+                    <button class="tile-btn btn-theme" title="Toggle Day/Night">☀</button>
+                    <!-- Admin Only Elements -->
+                    <button class="tile-btn btn-upload admin-only">UPLOAD DATA</button>
+                    <input type="file" class="hidden admin-only" style="display:none" multiple>
+                    <div class="tile-info">
+                        <span class="tile-id">${targetName}</span>
+                        <div class="grid grid-cols-1 gap-1 text-[9px] text-gray-500 mb-2 font-mono leading-tight">
+                            <div>DATE: <span class="text-accent date-display">--</span></div>
+                            <div>LOC: <span class="text-accent">${locationInfo}</span></div>
+                            <div>SIZE: <span class="text-accent size-display">--</span></div>
+                            ${weatherInfo}
+                            <div class="mt-1">POLY: <span class="poly-count text-accent">--</span></div>
+                        </div>
+                        <div class="tile-status-container">
+                            <div>STATUS: <span class="tile-status waiting">EMPTY</span></div>
+                        </div>
+                    </div>
+                    <div class="loading-line"></div>
+                `;
+                
+                // Event Bindings
+                div.addEventListener('click', () => enterFullscreen(i));
+                
+                const themeBtn = div.querySelector('.btn-theme');
+                themeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    toggleSlotTheme(i);
+                });
+
+                const uploadBtn = div.querySelector('.btn-upload');
+                const fileInput = div.querySelector('input[type="file"]');
+                if(uploadBtn && fileInput){
+                    uploadBtn.addEventListener('click', (e) => { e.stopPropagation(); fileInput.click(); });
+                    fileInput.addEventListener('click', (e) => e.stopPropagation());
+                    fileInput.addEventListener('change', (e) => {
+                        if (e.target.files.length > 0) handleFiles(e.target.files, i);
+                        fileInput.value = '';
+                    });
+                }
+
+                // Drag Events
+                div.addEventListener('dragover', (e) => { 
+                    e.preventDefault(); 
+                    if(state.isAdmin) div.style.borderColor = state.scenes[i].isDark ? '#7CFF7A' : '#008800'; 
+                });
+                div.addEventListener('dragleave', (e) => { 
+                    e.preventDefault(); 
+                    if(state.isAdmin) div.style.borderColor = ''; 
+                });
+                div.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    div.style.borderColor = '';
+                    if (state.isAdmin && e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files, i);
+                });
+
+                gridContainer.appendChild(div);
+            }
+
+            // Global Listeners
+            window.addEventListener('resize', onResize);
+            window.addEventListener('keydown', (e) => { if (e.key === 'Escape') exitFullscreen(); });
+            document.getElementById('btn-exit').addEventListener('click', exitFullscreen);
+            document.getElementById('fs-theme-toggle').addEventListener('click', () => toggleSlotTheme(state.activeSlot));
+            
+            // Info Modal Logic
+            const infoModal = document.getElementById('info-modal');
+            document.getElementById('info-btn').addEventListener('click', () => {
+                infoModal.classList.add('active');
+            });
+            document.querySelector('#info-modal .close-modal').addEventListener('click', () => {
+                infoModal.classList.remove('active');
+            });
+            document.getElementById('save-info-btn').addEventListener('click', () => {
+                const newText = document.getElementById('info-content').innerText;
+                state.infoText = newText;
+                localStorage.setItem('archive_info_text', newText);
+                alert("INFO UPDATED");
+                infoModal.classList.remove('active');
+            });
+
+            // Login Logic
+            document.getElementById('login-btn').addEventListener('click', () => {
+                document.getElementById('login-modal').classList.add('active');
+            });
+            document.getElementById('submit-login').addEventListener('click', () => {
+                const pass = document.getElementById('password-input').value;
+                if(pass === 'Alwayssnow0$') { 
+                    state.isAdmin = true;
+                    document.body.classList.add('is-admin');
+                    document.getElementById('login-modal').classList.remove('active');
+                    document.getElementById('login-btn').style.display = 'none';
+                    
+                    // Enable Info Editing
+                    const infoArea = document.getElementById('info-content');
+                    // For DIV, use contentEditable
+                    infoArea.contentEditable = "true";
+                    infoArea.classList.add('editable');
+                    document.getElementById('save-info-btn').style.display = 'block';
+
+                    updateAllStatuses();
+                } else {
+                    alert("ACCESS DENIED");
+                }
+            });
+
+            // Preview Mode Logic
+            document.getElementById('preview-btn').addEventListener('click', () => {
+                if(!state.isAdmin) return;
+                state.isPreview = !state.isPreview;
+                document.body.classList.toggle('preview-mode', state.isPreview);
+                const btn = document.getElementById('preview-btn');
+                btn.innerText = state.isPreview ? "EXIT PREVIEW" : "PREVIEW MODE";
+                updateAllStatuses();
+            });
+            
+            // Speed Control
+            const speedBtn = document.getElementById('speed-btn');
+            speedBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if(state.speedMultiplier === 1.0) state.speedMultiplier = 2.0;
+                else if(state.speedMultiplier === 2.0) state.speedMultiplier = 0.5;
+                else if(state.speedMultiplier === 0.5) state.speedMultiplier = 0.25;
+                else if(state.speedMultiplier === 0.25) state.speedMultiplier = 0.1;
+                else state.speedMultiplier = 1.0;
+                speedBtn.innerText = state.speedMultiplier + "x";
+            });
+
+            // Grid Config Logic
+            document.querySelectorAll('#grid-config .btn-ctrl').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const mode = e.target.dataset.grid;
+                    setGridMode(mode);
+                });
+            });
+
+            setupGlobalDragAndDrop();
+            setupModeButtons();
+
+            // INITIALIZATION CHECK FOR MOBILE
+            const isMobile = window.innerWidth < 768;
+            setGridMode(isMobile ? '1col' : '3x2');
+
+            // Force initial status update
+            updateAllStatuses();
+
+            animate();
+        }
+
+        // --- GRID LOGIC ---
+        function setGridMode(mode) {
+            state.gridMode = mode;
+            const container = document.getElementById('grid-container');
+            const btns = document.querySelectorAll('#grid-config .btn-ctrl');
+            
+            // Update Active Button
+            btns.forEach(b => {
+                if(b.dataset.grid === mode) b.classList.add('active');
+                else b.classList.remove('active');
+            });
+
+            // Reset Styles
+            container.style.gridTemplateColumns = '';
+            container.style.gridTemplateRows = '';
+            container.style.overflowY = 'hidden';
+            container.style.display = 'grid'; // Default
+            
+            // Clean up 1-col specific styles on children
+            const items = container.querySelectorAll('.grid-item-ui');
+            items.forEach(item => {
+                item.style.width = '';
+                item.style.aspectRatio = '';
+            });
+
+            // Logic Switch
+            switch(mode) {
+                case '1col':
+                    state.visibleSlots = 9; // Show all available for scroll
+                    container.style.display = 'flex';
+                    container.style.flexDirection = 'column';
+                    container.style.overflowY = 'scroll';
+                    items.forEach(item => {
+                        item.style.width = '100%';
+                        item.style.aspectRatio = '16 / 9';
+                        item.style.flexShrink = '0';
+                    });
+                    break;
+                case '2x2':
+                    state.visibleSlots = 4;
+                    container.style.gridTemplateColumns = 'repeat(2, 1fr)';
+                    container.style.gridTemplateRows = 'repeat(2, 1fr)';
+                    break;
+                case '3x2':
+                    state.visibleSlots = 6;
+                    container.style.gridTemplateColumns = 'repeat(3, 1fr)';
+                    container.style.gridTemplateRows = 'repeat(2, 1fr)';
+                    break;
+                case '3x3':
+                    state.visibleSlots = 9;
+                    container.style.gridTemplateColumns = 'repeat(3, 1fr)';
+                    container.style.gridTemplateRows = 'repeat(3, 1fr)';
+                    break;
+            }
+
+            // Show/Hide Slots
+            items.forEach((item, index) => {
+                item.style.display = index < state.visibleSlots ? 'flex' : 'none';
+            });
+        }
+
+        function setupGlobalDragAndDrop() {
+            const dropZone = document.getElementById('drop-overlay');
+            document.body.addEventListener('dragenter', (e) => { 
+                e.preventDefault(); 
+                if(state.isAdmin) dropZone.classList.add('active'); 
+            });
+            dropZone.addEventListener('dragleave', (e) => { 
+                e.preventDefault(); 
+                dropZone.classList.remove('active'); 
+            });
+            dropZone.addEventListener('dragover', (e) => { e.preventDefault(); });
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault(); 
+                dropZone.classList.remove('active');
+                const target = state.view === 'fullscreen' ? state.activeSlot : 0;
+                if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files, target);
+            });
+        }
+
+        function handleFiles(files, slotIndex) {
+            if(!state.isAdmin) return;
+
+            const blobURLs = new Map();
+            let objFile = null, mtlFile = null;
+
+            Array.from(files).forEach(file => {
+                const url = URL.createObjectURL(file);
+                blobURLs.set(file.name, url);
+                const ext = file.name.split('.').pop().toLowerCase();
+                if (ext === 'obj') objFile = file;
+                if (ext === 'mtl') mtlFile = file;
+            });
+
+            if (!objFile) return alert("Please drop at least one .obj file");
+
+            const manager = new THREE.LoadingManager();
+            manager.setURLModifier((url) => {
+                const fileName = url.replace(/^.*[\\\/]/, '');
+                const decoded = decodeURIComponent(fileName);
+                if (blobURLs.has(decoded)) return blobURLs.get(decoded);
+                if (blobURLs.has(fileName)) return blobURLs.get(fileName);
+                return url;
+            });
+            
+            manager.onError = (url) => {
+                const tileUI = document.querySelector(`.grid-item-ui[data-index="${slotIndex}"]`);
+                if(tileUI && !tileUI.querySelector('.error-msg')) {
+                     const err = document.createElement('div');
+                     err.className = 'error-msg';
+                     err.style.color = 'red';
+                     err.style.fontSize = '9px';
+                     err.innerText = `MISSING: ${url.replace(/^blob:.*[\/]/, '')}`;
+                     tileUI.querySelector('.tile-info').appendChild(err);
+                }
+            };
+
+            const objLoader = new OBJLoader(manager);
+            const mtlLoader = new MTLLoader(manager);
+
+            const onLoad = (obj) => processLoadedObject(obj, slotIndex, objFile, blobURLs);
+
+            if (mtlFile) {
+                mtlLoader.load(blobURLs.get(mtlFile.name), (mats) => {
+                    mats.preload();
+                    objLoader.setMaterials(mats);
+                    objLoader.load(blobURLs.get(objFile.name), onLoad);
+                });
+            } else {
+                objLoader.load(blobURLs.get(objFile.name), onLoad);
+            }
+        }
+
+        function updateAllStatuses() {
+            const tiles = document.querySelectorAll('.grid-item-ui');
+            tiles.forEach(tile => {
+                const index = parseInt(tile.dataset.index);
+                const status = tile.querySelector('.tile-status');
+                const hasMesh = !!state.scenes[index].mesh; // Check actual data existence
+
+                if (state.isAdmin && !state.isPreview) {
+                    // Admin View: Reflect true data state
+                    if (hasMesh) {
+                         status.innerText = "READY";
+                         status.classList.remove('waiting');
+                         status.classList.remove('viewing');
+                    } else {
+                         status.innerText = "WAITING FOR UPLOAD";
+                         status.classList.add('waiting');
+                         status.classList.remove('viewing');
+                    }
+                } else {
+                    // Visitor/Preview View
+                    if (hasMesh) {
+                        status.innerText = "VIEWING";
+                        status.classList.remove('waiting');
+                        status.classList.add('viewing');
+                    } else {
+                        status.innerText = "EMPTY";
+                        status.classList.add('waiting'); // Use waiting style for empty
+                        status.classList.remove('viewing');
+                    }
+                }
+            });
+        }
+
+        function toggleSlotTheme(index) {
+            const s = state.scenes[index];
+            s.isDark = !s.isDark;
+
+            s.scene.background = new THREE.Color(s.isDark ? config.colors.dark : config.colors.light);
+
+            if (s.mesh) {
+                s.mesh.traverse(child => {
+                    if (child.isMesh && child.material && (child.material.map === state.gridTexLight || child.material.map === state.gridTexDark)) {
+                        child.material.map = s.isDark ? state.gridTexDark : state.gridTexLight;
+                        child.material.color.setHex(0xffffff); 
+                        child.material.needsUpdate = true;
+                    }
+                    if (child.isMesh && child.material && child.material.wireframe && !child.material.map) {
+                        child.material.color.setHex(s.isDark ? 0x7CFF7A : 0x000000);
+                    }
+                });
+            }
+
+            const tileUI = document.querySelector(`.grid-item-ui[data-index="${index}"]`);
+            if (tileUI) {
+                tileUI.classList.toggle('theme-light', !s.isDark);
+                tileUI.classList.toggle('theme-dark', s.isDark);
+                tileUI.querySelector('.btn-theme').innerText = s.isDark ? '☾' : '☀';
+            }
+
+            if (state.view === 'fullscreen' && state.activeSlot === index) {
+                const fsUI = document.getElementById('fullscreen-ui');
+                fsUI.className = s.isDark ? 'theme-dark' : 'theme-light';
+                fsUI.classList.add('active'); 
+                document.getElementById('fs-theme-toggle').innerText = s.isDark ? '☾' : '☀';
+            }
+        }
+
+        function createScene(index) {
+            const isDark = false; 
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(config.colors.light);
+
+            const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+            camera.position.set(0, 0, 4);
+            
+            const ambient = new THREE.AmbientLight(0xffffff, 1.0);
+            scene.add(ambient);
+            
+            const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+            dir.position.set(2, 5, 5);
+            scene.add(dir);
+            
+            const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
+            backLight.position.set(-2, 2, -5);
+            scene.add(backLight);
+
+            const controls = new OrbitControls(camera, state.canvas);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enabled = false;
+
+            return {
+                scene, camera, controls, mesh: null, 
+                originalMaterials: new Map(),
+                polyCount: "---",
+                name: `SLOT_00${index + 1}`,
+                isDark: isDark,
+                uniforms: { uTime: { value: 0 } } 
+            };
+        }
+
+        function createGridTexture(isDark) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            const bgColor = isDark ? '#111' : '#e5e5e5';
+            const lineColor = isDark ? '#444' : '#999';
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0,0,512,512);
+            ctx.strokeStyle = lineColor;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for(let i=0; i<=512; i+=64) {
+                ctx.moveTo(i,0); ctx.lineTo(i,512);
+                ctx.moveTo(0,i); ctx.lineTo(512,i);
+            }
+            ctx.stroke();
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            state.time += 0.01 * state.speedMultiplier; 
+
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            state.renderer.setSize(width, height); 
+
+            state.scenes.forEach(s => {
+                s.uniforms.uTime.value = state.time;
+            });
+
+            if (state.view === 'fullscreen') {
+                const s = state.scenes[state.activeSlot];
+                state.renderer.setScissor(0, 0, width, height);
+                state.renderer.setViewport(0, 0, width, height);
+                s.controls.enabled = true;
+                s.controls.update();
+                state.renderer.render(s.scene, s.camera);
+            } else {
+                // DOM-based viewport calculation
+                // This automatically handles the Grid/Flex layout and Scrolling
+                state.scenes.forEach((s, i) => {
+                    const el = document.querySelector(`.grid-item-ui[data-index="${i}"]`);
+                    
+                    // Skip if element is hidden or not created
+                    if (!el || el.style.display === 'none') {
+                        s.controls.enabled = false;
+                        return;
+                    }
+
+                    const rect = el.getBoundingClientRect();
+
+                    // Visibility Check (Frustum culling for HTML elements)
+                    // If rect is outside viewport, don't render
+                    if (rect.bottom < 0 || rect.top > height || rect.right < 0 || rect.left > width) {
+                        return;
+                    }
+
+                    // GL Coordinates: Y is 0 at bottom
+                    const glY = height - rect.bottom;
+
+                    state.renderer.setViewport(rect.left, glY, rect.width, rect.height);
+                    state.renderer.setScissor(rect.left, glY, rect.width, rect.height);
+
+                    if (s.mesh) s.mesh.rotation.y = Math.sin(state.time * 0.5 + i) * 0.5;
+                    
+                    s.controls.enabled = false;
+                    s.camera.aspect = rect.width / rect.height;
+                    s.camera.updateProjectionMatrix();
+                    state.renderer.render(s.scene, s.camera);
+                });
+            }
+        }
+
+        function enterFullscreen(index) {
+            if (state.view === 'fullscreen') return;
+            state.activeSlot = index;
+            state.view = 'fullscreen';
+            
+            document.getElementById('grid-container').style.display = 'none';
+            const fsUI = document.getElementById('fullscreen-ui');
+            fsUI.classList.add('active');
+
+            const s = state.scenes[index];
+            fsUI.className = s.isDark ? 'theme-dark active' : 'theme-light active';
+            document.getElementById('fs-theme-toggle').innerText = s.isDark ? '☾' : '☀';
+
+            s.controls.enabled = true;
+            s.controls.reset();
+            
+            applyMode('texture');
+            document.querySelectorAll('.btn-mode').forEach(b => b.classList.remove('active'));
+            const texBtn = document.querySelector('.btn-mode[data-mode="texture"]');
+            if (texBtn) texBtn.classList.add('active');
+            document.getElementById('hud-mode').innerText = "TEXTURE";
+            
+            updateHUD(s);
+        }
+
+        function exitFullscreen() {
+            if (state.view === 'grid') return;
+            state.view = 'grid';
+            
+            // Restore Grid/Flex Display based on mode
+            const container = document.getElementById('grid-container');
+            container.style.display = state.gridMode === '1col' ? 'flex' : 'grid';
+            
+            document.getElementById('fullscreen-ui').classList.remove('active');
+
+            const s = state.scenes[state.activeSlot];
+            s.controls.enabled = false;
+        }
+
+        function updateHUD(sceneData) {
+            document.getElementById('hud-name').innerText = sceneData.name.toUpperCase();
+            if (sceneData.mesh) {
+                let v = 0, f = 0;
+                sceneData.mesh.traverse(c => {
+                    if(c.isMesh) {
+                        v += c.geometry.attributes.position.count;
+                        if(c.geometry.index) f += c.geometry.index.count / 3;
+                        else f += c.geometry.attributes.position.count / 3;
+                    }
+                });
+                document.getElementById('hud-verts').innerText = v.toLocaleString();
+                document.getElementById('hud-faces').innerText = Math.floor(f).toLocaleString();
+            } else {
+                document.getElementById('hud-verts').innerText = "0";
+                document.getElementById('hud-faces').innerText = "0";
+            }
+        }
+
+        function setupModeButtons() {
+            document.querySelectorAll('.btn-mode').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    document.querySelectorAll('.btn-mode').forEach(b => b.classList.remove('active'));
+                    e.target.classList.add('active');
+                    const mode = e.target.dataset.mode;
+                    document.getElementById('hud-mode').innerText = mode.toUpperCase();
+                    applyMode(mode);
+                });
+            });
+        }
+
+        function applyMode(mode) {
+            const s = state.scenes[state.activeSlot];
+            if (!s.mesh) return;
+
+            s.mesh.traverse((child) => {
+                if (child.isMesh) {
+                    switch (mode) {
+                        case 'texture':
+                            if (s.originalMaterials.has(child.uuid)) {
+                                const originalMat = s.originalMaterials.get(child.uuid);
+                                if (originalMat.map) {
+                                    child.material = new THREE.ShaderMaterial({
+                                        uniforms: { map: { value: originalMat.map } },
+                                        vertexShader: SOFT_TEXTURE_SHADER.vertexShader,
+                                        fragmentShader: SOFT_TEXTURE_SHADER.fragmentShader
+                                    });
+                                } else {
+                                    child.material = s.originalMaterials.get(child.uuid);
+                                }
+                            } else {
+                                child.material = new THREE.MeshStandardMaterial({ color: 0xffffff });
+                            }
+                            child.material.wireframe = false;
+                            break;
+                        case 'solid': child.material = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.5, metalness: 0.1 }); break;
+                        case 'wireframe': child.material = new THREE.MeshBasicMaterial({ color: s.isDark ? 0x7CFF7A : 0x000000, wireframe: true }); break;
+                        case 'normals': child.material = new THREE.MeshNormalMaterial(); break;
+                        case 'inferno': child.material = new THREE.ShaderMaterial({ uniforms: s.uniforms, vertexShader: INFERNO_SHADER.vertexShader, fragmentShader: INFERNO_SHADER.fragmentShader }); break;
+                        case 'toxic': child.material = new THREE.ShaderMaterial({ uniforms: s.uniforms, vertexShader: TOXIC_SHADER.vertexShader, fragmentShader: TOXIC_SHADER.fragmentShader, side: THREE.DoubleSide }); break;
+                        case 'arctic': child.material = new THREE.ShaderMaterial({ uniforms: s.uniforms, vertexShader: ARCTIC_SHADER.vertexShader, fragmentShader: ARCTIC_SHADER.fragmentShader }); break;
+                        case 'quicksilver': child.material = new THREE.ShaderMaterial({ uniforms: s.uniforms, vertexShader: QUICKSILVER_SHADER.vertexShader, fragmentShader: QUICKSILVER_SHADER.fragmentShader }); break;
+                        case 'ethereal': child.material = new THREE.ShaderMaterial({ uniforms: s.uniforms, vertexShader: ETHEREAL_SHADER.vertexShader, fragmentShader: ETHEREAL_SHADER.fragmentShader, side: THREE.DoubleSide, transparent: true, opacity: 0.9 }); break;
+                        case 'ethereal2': child.material = new THREE.ShaderMaterial({ uniforms: s.uniforms, vertexShader: ETHEREAL_2_SHADER.vertexShader, fragmentShader: ETHEREAL_2_SHADER.fragmentShader, side: THREE.DoubleSide, transparent: true, opacity: 0.9 }); break;
+                        case 'neon': child.material = new THREE.ShaderMaterial({ uniforms: s.uniforms, vertexShader: NEON_PULSE_SHADER.vertexShader, fragmentShader: NEON_PULSE_SHADER.fragmentShader, side: THREE.DoubleSide, transparent: true, blending: THREE.AdditiveBlending }); break;
+                        case 'chroma': child.material = new THREE.ShaderMaterial({ uniforms: s.uniforms, vertexShader: CHROMATIC_DISTORTION_SHADER.vertexShader, fragmentShader: CHROMATIC_DISTORTION_SHADER.fragmentShader, side: THREE.DoubleSide }); break;
+                        case 'mono': child.material = new THREE.ShaderMaterial({ uniforms: s.uniforms, vertexShader: MONO_CHROMA_SHADER.vertexShader, fragmentShader: MONO_CHROMA_SHADER.fragmentShader, side: THREE.DoubleSide }); break;
+                    }
+                    child.material.needsUpdate = true;
+                }
+            });
+        }
+        
+        function processLoadedObject(object, slotIndex, objFile, blobURLs) {
+            const s = state.scenes[slotIndex];
+            if (s.mesh) s.scene.remove(s.mesh);
+            s.originalMaterials.clear();
+
+            const box = new THREE.Box3().setFromObject(object);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3()); 
+            
+            const dateObj = objFile.lastModified ? new Date(objFile.lastModified) : new Date();
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const year = dateObj.getFullYear();
+            const dateStr = `${day}.${month}.${year}`;
+            const sizeStr = `${size.x.toFixed(2)}m x ${size.y.toFixed(2)}m x ${size.z.toFixed(2)}m`;
+
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scale = 3.5 / maxDim; 
+
+            const fixMaterial = (mat) => {
+                mat.side = THREE.DoubleSide;
+                mat.transparent = false; 
+                mat.opacity = 1.0;
+                mat.depthWrite = true;
+                if (mat.map) mat.map.encoding = THREE.sRGBEncoding;
+            };
+
+            object.traverse(child => {
+                if (child.isMesh) {
+                    if (child.material) {
+                        if (Array.isArray(child.material)) child.material.forEach(fixMaterial);
+                        else fixMaterial(child.material);
+                    }
+                    s.originalMaterials.set(child.uuid, child.material);
+                }
+            });
+
+            object.position.sub(center).multiplyScalar(scale);
+            object.scale.multiplyScalar(scale);
+
+            s.mesh = object;
+            s.name = `SLOT ${slotIndex + 1}`; 
+            s.scene.add(object);
+
+            const tileUI = document.querySelector(`.grid-item-ui[data-index="${slotIndex}"]`);
+            if(tileUI) {
+                const errs = tileUI.querySelectorAll('.error-msg');
+                errs.forEach(e => e.remove());
+                
+                let v = 0;
+                object.traverse(c => { if(c.isMesh) v += c.geometry.attributes.position.count; });
+                
+                tileUI.querySelector('.poly-count').innerText = (v/1000).toFixed(1) + 'k';
+                tileUI.querySelector('.date-display').innerText = dateStr;
+                tileUI.querySelector('.size-display').innerText = sizeStr;
+
+                // Update Status: Use global updater instead of manual override
+                // This ensures we respect the current Admin/Visitor mode
+                updateAllStatuses();
+
+                // Maintain theme color sync manually or rely on CSS classes handled by updateAllStatuses?
+                // updateAllStatuses handles the class removal/addition.
+                // The color is handled by CSS vars for .tile-status.ready or .viewing.
+                // But the code previously had manual color override for theme.
+                // .tile-status { color: var(--status-green) } handles it generally.
+                // If we want specific colors for dark mode we can rely on .theme-dark .tile-status logic if added.
+                // Current CSS handles colors via variables.
+                
+                // Keep the color consistent if inline styles were used previously?
+                // Previous code: status.style.color = state.scenes[slotIndex].isDark ? '#7CFF7A' : '#008800';
+                // We should probably rely on CSS classes now to be cleaner.
+                const status = tileUI.querySelector('.tile-status');
+                status.style.color = ''; // Clear inline to let CSS take over
+            }
+            
+            if(state.view === 'fullscreen' && state.activeSlot === slotIndex) {
+                applyMode('texture');
+                updateHUD(s);
+            }
+        }
+
+        function onResize() {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            state.renderer.setSize(width, height);
+            
+            // Check for mobile resize switch if needed? 
+            // Currently only switches on load as requested.
+        }
+
+        init();
+    </script>
+</body>
+</html>
